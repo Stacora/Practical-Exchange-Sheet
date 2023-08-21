@@ -32,8 +32,7 @@ ui <- fluidPage(
     column(2,
            br(),
            actionButton('addline', 'Add Line'))
-  ),
-  textOutput('testando')
+  )
 )
 
 # Define server logic required to draw a histogram
@@ -60,8 +59,10 @@ server <- function(input, output) {
   server = T,
   selection = 'single')
   
+  ## Adding a new line
   observeEvent(input$addline, {
     if(!exists('theFile')){
+      # in case the file doesn't exist, a notification will appear
       showNotification('No data was submited or created yet.')
     }else{
       new_line = data.frame(Date = NA,
@@ -77,18 +78,22 @@ server <- function(input, output) {
   })
   
   observeEvent(input$dropline, {
+    # The drop line section doesn't conserve the indexes, it reformulates them
     pivot = theFile$data
     pivot = pivot[-input$indexToDrop, ]
+    
+    # Reformulating indexes
+    rownames(pivot) = 1:nrow(pivot)
     theFile$data <<- pivot
+    
     updateNumericInput(inputId = 'indexToDrop', value = nrow(theFile$data))
+    
   })
   
+  # updating input$indexToDrop to then delete, or drop, a selected line
   observeEvent(input$mySheet_rows_selected, {
-    updateNumericInput(inputId = 'indexToDrop', value = input$mySheet_rows_selected)
-  })
-  
-  output$testando = renderPrint({
-    input$mySheet_rows_selected
+    updateNumericInput(inputId = 'indexToDrop', 
+                       value = input$mySheet_rows_selected)
   })
 }
 
