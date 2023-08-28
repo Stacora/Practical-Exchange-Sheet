@@ -7,6 +7,12 @@ new_Data = data.frame(Date = character(0),
                       USD_price = character(0),
                       USD_amaount = character(0),
                       Description = character(0))
+# new_Data = data.frame(Date = NA,
+#                       Amount = NA,
+#                       Currency = NA,
+#                       USD_price = NA,
+#                       USD_amaount = NA,
+#                       Description = NA)
 
 # Define UI for application that draws a histogram
 ui <- fluidPage(
@@ -29,9 +35,12 @@ ui <- fluidPage(
     column(1,
            br(),
            actionButton('dropline', 'Drop Line')),
-    column(2,
+    column(6,
            br(),
-           actionButton('addline', 'Add Line'))
+           actionButton('addline', 'Add Line')),
+    column(1,
+           br(),
+           actionButton('submitLine', 'Submit Line'))
   )
 )
 
@@ -55,9 +64,22 @@ server <- function(input, output) {
       theFile$data
     }
   },
-  editable = list(target = 'row', disable = 0), 
+  editable = list(target = 'cell'), 
   server = T,
-  selection = 'single')
+  selection = 'none',
+  class = 'cell-border stripe')
+  
+  addme_lines = reactive({
+    new_line = data.frame(Date = dateInput('date_it', 'Date', value = Sys.Date()),
+                          Amount = NA,
+                          Currency = NA,
+                          USD_price = NA,
+                          USD_amaount = NA,
+                          Description = NA)
+    
+    theFile$data <<- rbind(theFile$data, new_line)
+    updateNumericInput(inputId = 'indexToDrop', value = nrow(theFile$data))
+  })
   
   ## Adding a new line
   observeEvent(input$addline, {
@@ -65,29 +87,28 @@ server <- function(input, output) {
       # in case the file doesn't exist, a notification will appear
       showNotification('No data was submited or created yet.')
     }else{
-      new_line = data.frame(Date = NA,
-                            Amount = NA,
-                            Currency = NA,
-                            USD_price = NA,
-                            USD_amaount = NA,
-                            Description = NA)
-      
-      theFile$data <<- rbind(theFile$data, new_line)
-      updateNumericInput(inputId = 'indexToDrop', value = nrow(theFile$data))
+      addme_lines()
+      # print(theFile$data)
     }
   })
   
   observeEvent(input$dropline, {
-    # The drop line section doesn't conserve the indexes, it reformulates them
-    pivot = theFile$data
-    pivot = pivot[-input$indexToDrop, ]
     
-    # Reformulating indexes
-    rownames(pivot) = 1:nrow(pivot)
-    theFile$data <<- pivot
-    
-    updateNumericInput(inputId = 'indexToDrop', value = nrow(theFile$data))
-    
+    if(!exists('theFile')){
+      showNotification('No data was submited or created yet.')
+    }else if(is.null(theFile$data) | (nrow(theFile$data) == 0)){
+      showNotification('No data was submited or created yet.')
+    }else{
+      # The drop line section doesn't conserve the indexes, it reformulates them
+      pivot = theFile$data
+      pivot = pivot[-input$indexToDrop, ]
+      
+      # Reformulating indexes
+      rownames(pivot) = 1:nrow(pivot)
+      theFile$data <<- pivot
+      
+      updateNumericInput(inputId = 'indexToDrop', value = nrow(theFile$data)) 
+    }
   })
   
   # updating input$indexToDrop to then delete, or drop, a selected line
@@ -95,7 +116,36 @@ server <- function(input, output) {
     updateNumericInput(inputId = 'indexToDrop', 
                        value = input$mySheet_rows_selected)
   })
+  
+  ## Adicionando y editando datos
+  
+  observeEvent(input$mySheet_cell_edit, {
+    
+    info = input$mySheet_cell_edit
+    row_dt = info$row
+    col_dt = info$col
+    value_dt = info$value
+    
+    pivot = theFile$data
+    
+    pivot[row_dt, col_dt] = value_dt
+    theFile$data <<- pivot
+    
+    if(nrow(pivot) == row_dt){
+      addme_lines()
+    }
+  })
+  
+  evaluate_data = function(value, column){
+    
+  }
+  
 }
 
 # Run the application 
 shinyApp(ui = ui, server = server)
+
+## Quiero colocar dateInput() en la columna de data de DT table. Es posible.
+## Visitar el siguiente link
+# https://stackoverflow.com/questions/55034483/shiny-widgets-in-dt-table
+# https://stackoverflow.com/questions/48160173/r-shiny-extract-values-from-numericinput-datatable-column
