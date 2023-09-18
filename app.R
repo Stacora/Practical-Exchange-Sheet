@@ -2,6 +2,13 @@ library(shiny)
 library(DT)
 library(stringr)
 library(dplyr)
+library(reticulate)
+#reticulate::use_condaenv('base')
+reticulate::import('requests')
+reticulate::import('pandas')
+reticulate::import('datetime')
+
+currency_list = read.csv2('currency_list.csv', sep = ',')
 
 generate_empty = function(NAs = F){
   if(NAs){
@@ -34,16 +41,21 @@ values_inout = c('in', 'out', 'earned', 'spent', 1, -1)
 # Define UI for application that draws a histogram
 ui <- fluidPage(
   fluidRow(
-    column(8,
+    column(6,
            tags$h1('Practical Sheet'),
-           column(6,
+           column(4,
                   fileInput('inputData', 'Import your Data')),
-           column(6,
+           column(4,
                   br(),
-                  actionButton('newDoc', 'New file'))
+                  actionButton('newDoc', 'New file')),
+           column(4,
+                  column(6, selectInput('currency_list1', 
+                                        label = 'Currency',
+                                        choices = currency_list$currency)))
            ),
     column(4,
-           tags$h1(textOutput('totalValue')))
+           tags$h1(textOutput('totalValue')),
+           column(6, tags$h6(textOutput('USD_pricing'))))
   ),
   DT::dataTableOutput('mySheet'),
   fluidRow(
@@ -315,8 +327,10 @@ server <- function(input, output) {
         inout = theFile$data[['In_Out']] %>% str_to_lower() %>%
           inout_traductor()
         pivot = pivot * inout
-        
+
         total = sprintf('%.2f', sum(pivot, na.rm = T))
+        total = paste(total, ' USD')
+        return(total)
       }
     }else{
       return('0,00 USD')
@@ -327,7 +341,35 @@ server <- function(input, output) {
     totalUsD()
   })
   
+  import_pythonscript = function(){
+    print('bloco de teste.py')
+    reticulate::source_python('teste.py', envir = globalenv())
+    print('fim bloco de teste.py')
+  }
+  
+  pricing_output = eventReactive(input$currency_list1,{
+    pivot = rate_list[rate_list['Currency'] == input$currency_list1, ]
+    return(pivot[1, 'USD_price'])
+  })
+  
+  output$USD_pricing = renderText({
+    #3600*(10**3)
+    print('testando invalidate later')
+    invalidateLater(10000)
+    print('testando invalidate later 2')
+    import_pythonscript()
+    
+    pivot = pricing_output()
+    
+    return(pivot)
+  })
+  
 }
+
+## Falta colocar una forma de que el importador de datos de python
+## sea activado cada x milisegundos independiente de algun objeto de RShiny
+## De esta forma, output$USD_pricing puede simplemente mostrar los repcios del dolar
+## segun cada moneda sin hacer uso del saldo de los API de la página.
 
 # Run the application 
 shinyApp(ui = ui, server = server)
