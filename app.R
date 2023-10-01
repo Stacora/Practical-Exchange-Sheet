@@ -350,7 +350,7 @@ server <- function(input, output) {
   
   ### Price of the dollar
   import_pythonscript = function(){
-    reticulate::source_python('openexchangerates_api.py', envir = globalenv())
+    reticulate::source_python('CurrencyAPI.py', envir = globalenv())
   }
   
   pricing_output = eventReactive(input$currency_list1,{
