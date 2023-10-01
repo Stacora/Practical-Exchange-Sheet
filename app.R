@@ -3,6 +3,8 @@ library(DT)
 library(stringr)
 library(dplyr)
 library(reticulate)
+library(RSQLite)
+library(DBI)
 #reticulate::use_condaenv('base')
 reticulate::import('requests')
 reticulate::import('pandas')
@@ -290,6 +292,8 @@ server <- function(input, output) {
     }
   )
   
+  
+  ### To Download the data
   output$downloadData <- downloadHandler(
     filename = function() {
       # Use the selected dataset as the suggested file name
@@ -311,6 +315,8 @@ server <- function(input, output) {
     }
   )
   
+  
+  ### Total value output manipulation
   inout_traductor = function(vec){
     posiv = values_inout[c(1, 3, 5)]
     negativ = values_inout[- c(1, 3, 5)]
@@ -341,24 +347,50 @@ server <- function(input, output) {
     totalUsD()
   })
   
+  
+  ### Price of the dollar
   import_pythonscript = function(){
-    print('bloco de teste.py')
-    reticulate::source_python('teste.py', envir = globalenv())
-    print('fim bloco de teste.py')
+    reticulate::source_python('openexchangerates_api.py', envir = globalenv())
   }
   
   pricing_output = eventReactive(input$currency_list1,{
-    pivot = rate_list[rate_list['Currency'] == input$currency_list1, ]
+    pivot = df_exchange[df_exchange['Currency'] == input$currency_list1, ]
     return(pivot[1, 'USD_price'])
   })
   
-  output$USD_pricing = renderText({
-    #3600*(10**3)
-    print('testando invalidate later')
-    invalidateLater(10000)
-    print('testando invalidate later 2')
+  USDprice_timer = reactiveTimer(3600*(10**3))
+  
+  ### The proces bellow not only download the data from the API
+  ## It also saves the data to the data lake
+  observe({
+    USDprice_timer()
+    message('Inputing data from the API')
     import_pythonscript()
     
+    # oppening the dataset
+    drv = dbDriver('SQLite')
+    con = dbConnect(drv, dbname = 'the_DataBank.db')
+    
+    #### creating the names for the tables to be saved
+    
+    df_exchange_name = 'df_exchangeUSD' %>% 
+      paste0('_', df_exchange[1, 'timestamp'])
+    df_meta_name = 'df_metaUSD' %>%
+      paste0('_', df_meta[df_meta[['keys']] == 'timestamp', 'values'])
+    
+    if(!dbExistsTable(con, df_exchange_name)){
+      dbWriteTable(con, df_exchange_name, df_exchange)
+    }
+    
+    if(!dbExistsTable(con, df_meta_name)){
+      df_meta[['values']] = unlist(df_meta[['values']])
+      dbWriteTable(con, df_meta_name, df_meta)
+    }
+    
+    DBI::dbDisconnect(con)
+  })
+  
+  output$USD_pricing = renderText({
     pivot = pricing_output()
     
     return(pivot)
@@ -366,10 +398,6 @@ server <- function(input, output) {
   
 }
 
-## Falta colocar una forma de que el importador de datos de python
-## sea activado cada x milisegundos independiente de algun objeto de RShiny
-## De esta forma, output$USD_pricing puede simplemente mostrar los repcios del dolar
-## segun cada moneda sin hacer uso del saldo de los API de la página.
 
 # Run the application 
 shinyApp(ui = ui, server = server)
