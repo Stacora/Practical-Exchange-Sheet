@@ -339,18 +339,23 @@ server <- function(input, output) {
         return(total)
       }
     }else{
+      print('esto rueda?')
       return('0,00 USD')
     }
   })
   
   output$totalValue = renderText({
-    totalUsD()
+    if(is.null(input$mySheet_cell_edit)){
+      return('0,00 USD')
+    }else{
+      totalUsD()
+    }
   })
   
   
   ### Price of the dollar
   import_pythonscript = function(){
-    reticulate::source_python('CurrencyAPI.py', envir = globalenv())
+    reticulate::source_python('CurrencyApi.py', envir = globalenv())
   }
   
   pricing_output = eventReactive(input$currency_list1,{
@@ -364,27 +369,38 @@ server <- function(input, output) {
   ## It also saves the data to the data lake
   observe({
     USDprice_timer()
-    message('Inputing data from the API')
-    import_pythonscript()
     
     # oppening the dataset
     drv = dbDriver('SQLite')
     con = dbConnect(drv, dbname = 'the_DataBank.db')
     
-    #### creating the names for the tables to be saved
+    dbtables = dbListTables(con) %>% str_split_fixed(pattern = '_', n = 3)
+    dbdates0 = dbtables[, 3] %>% as.numeric()
+    dbdates = as.POSIXct(dbdates0, origin = "1970-01-01") + 3600
+    dbdates = dbdates >= Sys.time()
     
-    df_exchange_name = 'df_exchangeUSD' %>% 
-      paste0('_', df_exchange[1, 'timestamp'])
-    df_meta_name = 'df_metaUSD' %>%
-      paste0('_', df_meta[df_meta[['keys']] == 'timestamp', 'values'])
-    
-    if(!dbExistsTable(con, df_exchange_name)){
-      dbWriteTable(con, df_exchange_name, df_exchange)
-    }
-    
-    if(!dbExistsTable(con, df_meta_name)){
-      df_meta[['values']] = unlist(df_meta[['values']])
-      dbWriteTable(con, df_meta_name, df_meta)
+    if(!any(dbdates)){
+      message('Inputing data from the API')
+      import_pythonscript()
+      
+      #### creating the names for the tables to be saved
+      
+      df_exchange_name = 'df_exchangeUSD' %>% 
+        paste0('_', df_exchange[1, 'timestamp'])
+      df_meta_name = 'df_metaUSD' %>%
+        paste0('_', df_meta[df_meta[['keys']] == 'timestamp', 'values'])
+      
+      if(!dbExistsTable(con, df_exchange_name)){
+        dbWriteTable(con, df_exchange_name, df_exchange)
+      }
+      
+      if(!dbExistsTable(con, df_meta_name)){
+        df_meta[['values']] = unlist(df_meta[['values']])
+        dbWriteTable(con, df_meta_name, df_meta)
+      }
+    }else{
+      df_exchange <<- dbReadTable(con, paste0('df_exchangeUSD_', max(dbdates0)))
+      df_meta <<- dbReadTable(con, paste0('df_metaUSD_', max(dbdates0)))
     }
     
     DBI::dbDisconnect(con)
@@ -392,17 +408,18 @@ server <- function(input, output) {
   
   output$USD_pricing = renderText({
     pivot = pricing_output()
+    date = df_meta[df_meta[['keys']] == 'date', 'values'] %>% 
+      as.Date(format = '%d-%m-%Y')
+    expr = "^([0-9]{2}):([0-9]{1}):([0-9]{1})$"
+    time = df_meta[df_meta[['keys']] == 'time', 'values']
+    time = str_replace(time, expr, "\\1:00:00")
     
-    return(pivot)
+    the_message = paste(pivot, 'at', date, time)
+    
+    return(the_message)
   })
   
 }
 
-
 # Run the application 
 shinyApp(ui = ui, server = server)
-
-## Quiero colocar dateInput() en la columna de data de DT table. Es posible.
-## Visitar el siguiente link
-# https://stackoverflow.com/questions/55034483/shiny-widgets-in-dt-table
-# https://stackoverflow.com/questions/48160173/r-shiny-extract-values-from-numericinput-datatable-column
