@@ -12,13 +12,22 @@ reticulate::import('datetime')
 
 currency_list = read.csv2('currency_list.csv', sep = ',')
 
-generate_empty = function(NAs = F){
+generate_empty = function(NAs = F, datasetFormat = NULL){
+  if(!is.null(datasetFormat)){
+    dimen = dim(datasetFormat)[2]
+    matr = matrix(NA, 1, dimen) %>% data.frame()
+    colnames(matr) = colnames(datasetFormat)
+    return(matr)
+  }
+  
   if(NAs){
     a = data.frame(Date = NA,
                    Amount = NA,
                    Currency = NA,
                    USD_price = NA,
                    USD_amount = NA,
+                   From = NA,
+                   To = NA,
                    Description = NA,
                    In_Out = NA)
     return(a)
@@ -28,6 +37,8 @@ generate_empty = function(NAs = F){
                 Currency = character(0),
                 USD_price = character(0),
                 USD_amount = character(0),
+                From = character(0),
+                To = character(0),
                 Description = character(0),
                 In_Out = character(0))
   return(a)
@@ -39,40 +50,67 @@ new_Data = generate_empty()
 ## Padronizing the in_out variable
 values_inout = c('in', 'out', 'earned', 'spent', 1, -1)
 
+display_tabIMG = tabsetPanel(
+  id = 'display_it',
+  type = 'hidden',
+  tabPanel('meanWhileIMG',
+           imageOutput('imagem_meanwhile')
+           #HTML('<center><img src="shiba_dance.gif" width="400" type="image/gif"></center>')
+           #HTML('<center><img src="shiba_dance.gif" width="200" type="image/gif"></center>')
+           ),
+  tabPanel('table',
+           DT::dataTableOutput('mySheet'),
+           fluidRow(
+             column(2,
+                    numericInput('indexToDrop', 'Index', min = 0, value = 0)),
+             column(1,
+                    br(),
+                    actionButton('dropline', 'Drop Line')),
+             column(6,
+                    br(),
+                    actionButton('addline', 'Add Line')),
+             column(1,
+                    br(),
+                    downloadButton('downloadData', 'Download'))
+           ))
+)
 
 # Define UI for application that draws a histogram
-ui <- fluidPage(
-  fluidRow(
-    column(6,
-           tags$h1('Practical Sheet'),
-           column(4,
-                  fileInput('inputData', 'Import your Data')),
-           column(4,
-                  br(),
-                  actionButton('newDoc', 'New file')),
-           column(4,
-                  column(6, selectInput('currency_list1', 
-                                        label = 'Currency',
-                                        choices = currency_list$currency)))
-           ),
-    column(4,
-           tags$h1(textOutput('totalValue')),
-           column(6, tags$h6(textOutput('USD_pricing'))))
-  ),
-  DT::dataTableOutput('mySheet'),
-  fluidRow(
-    column(2,
-           numericInput('indexToDrop', 'Index', min = 0, value = 0)),
-    column(1,
-           br(),
-           actionButton('dropline', 'Drop Line')),
-    column(6,
-           br(),
-           actionButton('addline', 'Add Line')),
-    column(1,
-           br(),
-           downloadButton('downloadData', 'Download'))
-  )
+ui <- tagList(
+  tags$style(HTML(".nbcontainer .container{
+                    margin: 0 auto;
+                    padding:0;
+                    min-width: 1200px;
+                    width: auto !important;
+                  }
+                  .container-fluid {
+                    min-width: 1200px;
+                    width: auto !important;
+                  }
+                  .navbar.navbar-default.navbar-static-top {
+                    margin-bottom:0px;
+                  }")),
+  tags$div(class = 'nbcontainer',
+           fluidPage( #theme = bslib::bs_theme(bootswatch = "darkly"),
+             fixedRow(
+               column(6,
+                      tags$h1('Practical Sheet'),
+                      column(4,
+                             fileInput('inputData', 'Import your Data')),
+                      column(4,
+                             br(),
+                             actionButton('newDoc', 'New file')),
+                      column(4,
+                             column(6, selectInput('currency_list1', 
+                                                   label = 'Currency',
+                                                   choices = currency_list$currency)))
+               ),
+               column(4,
+                      tags$h1(textOutput('totalValue')),
+                      column(6, tags$h6(textOutput('USD_pricing'))))
+             ),
+             display_tabIMG
+           ))
 )
 
 # Define server logic required to draw a histogram
@@ -90,13 +128,26 @@ server <- function(input, output) {
     
   }
   
+  ## Mean while picture
+  ### It's a picture that will fill the main panel while there is no data inputed
+  output$imagem_meanwhile <- renderImage({
+    list(src = "shiba_dance.gif",
+         height = 300, 
+         width = 300, 
+         type = "image/gif",
+         style="display: block; margin-left: auto; margin-right: auto;",
+         align = "center")
+  },deleteFile = F)
+  
   ## prepare new data
   observeEvent(input$newDoc, {
+    updateTabsetPanel(inputId = 'display_it', selected = 'table')
     theFile <<- reactiveValues(data = new_Data)
   })
   
   ## import data
   observeEvent(input$inputData, {
+    updateTabsetPanel(inputId = 'display_it', selected = 'table')
     file_u = read.csv(input$inputData$datapath, sep = ',')
     theFile <<- reactiveValues(data = file_u)
   })
@@ -112,16 +163,33 @@ server <- function(input, output) {
   selection = 'none',
   class = 'cell-border stripe')
   
+  ## A function for checking the data format
+  dataset_checking = function(a_file, the_file){
+    action_boolean = ifelse(all(colnames(a_file) == colnames(the_file)), T, F)
+    return(action_boolean)
+  }
+  
+  ## Adding a line to the dataset
   addme_lines = reactive({
-    new_line = generate_empty(T)
-    dateit = strptime(as.character(Sys.Date()), '%Y-%m-%d')
-    dateit = format(dateit, '%d-%m-%Y')
-    new_line[['Date']] = dateit
-    new_line[['Amount']] = sprintf('%.2f', 0)
-    new_line[['USD_price']] = sprintf('%.2f', 0)
-    new_line[['USD_amount']] = sprintf('%.2f', 0)
+    action_boolean = dataset_checking(a_file = theFile$data,
+                                      the_file = new_Data)
     
-    theFile$data <<- rbind(theFile$data, new_line)
+    if(action_boolean){
+      new_line = generate_empty(T)
+      dateit = strptime(as.character(Sys.Date()), '%Y-%m-%d')
+      dateit = format(dateit, '%d-%m-%Y')
+      new_line[['Date']] = dateit
+      new_line[['Amount']] = sprintf('%.2f', 0)
+      new_line[['USD_price']] = sprintf('%.2f', 0)
+      new_line[['USD_amount']] = sprintf('%.2f', 0)
+      theFile$data <<- rbind(theFile$data, new_line)
+    }else{
+      show_semaforo('This data has a different format from what is expected.', 2)
+      new_line = generate_empty(datasetFormat = theFile$data)
+      
+      theFile$data <<- rbind(theFile$data, new_line)
+    }
+    
     updateNumericInput(inputId = 'indexToDrop', value = nrow(theFile$data))
   })
   
@@ -355,7 +423,7 @@ server <- function(input, output) {
   
   ### Price of the dollar
   import_pythonscript = function(){
-    reticulate::source_python('CurrencyApi.py', envir = globalenv())
+    reticulate::source_python('CurrencyAPI.py', envir = globalenv())
   }
   
   pricing_output = eventReactive(input$currency_list1,{
@@ -372,7 +440,7 @@ server <- function(input, output) {
     
     # oppening the dataset
     drv = dbDriver('SQLite')
-    con = dbConnect(drv, dbname = 'the_DataBank.db')
+    con = dbConnect(drv, dbname = 'TheDataLake.db')
     
     dbtables = dbListTables(con) %>% str_split_fixed(pattern = '_', n = 3)
     dbdates0 = dbtables[, 3] %>% as.numeric()
@@ -408,13 +476,14 @@ server <- function(input, output) {
   
   output$USD_pricing = renderText({
     pivot = pricing_output()
-    date = df_meta[df_meta[['keys']] == 'date', 'values'] %>% 
+    
+    date_it = df_meta[df_meta[['keys']] == 'date', 'values'][[1]] %>%
       as.Date(format = '%d-%m-%Y')
     expr = "^([0-9]{2}):([0-9]{1}):([0-9]{1})$"
     time = df_meta[df_meta[['keys']] == 'time', 'values']
     time = str_replace(time, expr, "\\1:00:00")
     
-    the_message = paste(pivot, 'at', date, time)
+    the_message = paste(pivot, 'at', date_it, time)
     
     return(the_message)
   })
@@ -423,3 +492,9 @@ server <- function(input, output) {
 
 # Run the application 
 shinyApp(ui = ui, server = server)
+
+## Quiero colocar dateInput() en la columna de data de DT table. Es posible.
+## Visitar el siguiente link
+# https://stackoverflow.com/questions/55034483/shiny-widgets-in-dt-table
+# https://stackoverflow.com/questions/48160173/r-shiny-extract-values-from-numericinput-datatable-column
+
