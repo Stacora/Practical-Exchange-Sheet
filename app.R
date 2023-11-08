@@ -5,10 +5,13 @@ library(dplyr)
 library(reticulate)
 library(RSQLite)
 library(DBI)
+library(shinyWidgets)
+#library(shiny.semantic)
 #reticulate::use_condaenv('base')
 reticulate::import('requests')
 reticulate::import('pandas')
 reticulate::import('datetime')
+#setwd('/Users/franciscotacora/Desktop/books/MasteringShiny/practical/practical_finance')
 
 currency_list = read.csv2('currency_list.csv', sep = ',')
 
@@ -76,42 +79,48 @@ display_tabIMG = tabsetPanel(
 )
 
 # Define UI for application that draws a histogram
-ui <- tagList(
-  tags$style(HTML(".nbcontainer .container{
-                    margin: 0 auto;
-                    padding:0;
-                    min-width: 1200px;
-                    width: auto !important;
-                  }
-                  .container-fluid {
-                    min-width: 1200px;
-                    width: auto !important;
-                  }
-                  .navbar.navbar-default.navbar-static-top {
-                    margin-bottom:0px;
-                  }")),
-  tags$div(class = 'nbcontainer',
-           fluidPage( #theme = bslib::bs_theme(bootswatch = "darkly"),
-             fixedRow(
-               column(6,
-                      tags$h1('Practical Sheet'),
-                      column(4,
-                             fileInput('inputData', 'Import your Data')),
-                      column(4,
-                             br(),
-                             actionButton('newDoc', 'New file')),
-                      column(4,
-                             column(6, selectInput('currency_list1', 
-                                                   label = 'Currency',
-                                                   choices = currency_list$currency)))
-               ),
-               column(4,
-                      tags$h1(textOutput('totalValue')),
-                      column(6, tags$h6(textOutput('USD_pricing'))))
-             ),
-             display_tabIMG
-           ))
+ui <- fluidPage( #theme = bslib::bs_theme(bootswatch = "darkly"),
+  fluidRow(column(6,
+                  tags$h1('Practical Sheet')),
+           column(4,
+                  tags$h1(textOutput('totalValue')),
+                  column(6, tags$h6(textOutput('USD_pricing'))))),
+  tabsetPanel(type = 'tabs',
+              br(),
+              tabPanel('Record',
+                       fixedRow(
+                         column(6,
+                                column(4,
+                                       fileInput('inputData', 'Import your Data')),
+                                column(4,
+                                       br(),
+                                       actionButton('newDoc', 'New file')),
+                                column(4,selectInput('currency_list1', 
+                                                     label = 'Currency',
+                                                     choices = currency_list$currency)
+                                       )
+                         )
+                       ),
+                       display_tabIMG
+                       ),
+              tabPanel('Credit',
+                       shinyWidgets::verticalTabsetPanel(
+                         id = 'creditHistory',
+                         verticalTabPanel(
+                           title = 'My Cards',
+                           tags$h1('Hello'),
+                           box_height = "50px"
+                         ),
+                         verticalTabPanel(
+                           title = 'My Expenses',
+                           tags$h1('world')
+                         )
+                       ))
+    
+  )
+  
 )
+
 
 # Define server logic required to draw a histogram
 server <- function(input, output) {
@@ -440,7 +449,7 @@ server <- function(input, output) {
     
     # oppening the dataset
     drv = dbDriver('SQLite')
-    con = dbConnect(drv, dbname = 'TheDataLake.db')
+    con = dbConnect(drv, dbname = 'USD_practicalFinance.db')
     
     dbtables = dbListTables(con) %>% str_split_fixed(pattern = '_', n = 3)
     dbdates0 = dbtables[, 3] %>% as.numeric()
@@ -492,9 +501,4 @@ server <- function(input, output) {
 
 # Run the application 
 shinyApp(ui = ui, server = server)
-
-## Quiero colocar dateInput() en la columna de data de DT table. Es posible.
-## Visitar el siguiente link
-# https://stackoverflow.com/questions/55034483/shiny-widgets-in-dt-table
-# https://stackoverflow.com/questions/48160173/r-shiny-extract-values-from-numericinput-datatable-column
 
