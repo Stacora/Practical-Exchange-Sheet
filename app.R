@@ -6,116 +6,305 @@ library(reticulate)
 library(RSQLite)
 library(DBI)
 library(shinyWidgets)
-#library(shiny.semantic)
-#reticulate::use_condaenv('base')
 reticulate::import('requests')
 reticulate::import('pandas')
 reticulate::import('datetime')
-#setwd('/Users/franciscotacora/Desktop/books/MasteringShiny/practical/practical_finance')
 
+### DataSets format
 currency_list = read.csv2('currency_list.csv', sep = ',')
 
-generate_empty = function(NAs = F, datasetFormat = NULL){
-  if(!is.null(datasetFormat)){
-    dimen = dim(datasetFormat)[2]
-    matr = matrix(NA, 1, dimen) %>% data.frame()
-    colnames(matr) = colnames(datasetFormat)
-    return(matr)
+baseExpenses = readxl::read_xlsx('FinApp_planilla.xlsx',sheet = 1)
+baseIncome = readxl::read_xlsx('FinApp_planilla.xlsx',sheet = 2)
+baseCreditCards = readxl::read_xlsx('FinApp_planilla.xlsx',sheet = 3)
+baseCreditExpenses = readxl::read_xlsx('FinApp_planilla.xlsx',sheet = 4)
+baseDebt = readxl::read_xlsx('FinApp_planilla.xlsx',sheet = 5)
+
+#### Columns and datatypes
+## for expenses and income
+# Date = date with strptime(as.character(Sys.Date()), '%Y-%m-%d') %>% format('%Y-%m-%d')
+# Amount = Numeric with sprintf('%.2f', 0)
+# Currency = character
+# USD_price = Numeric with sprintf('%.2f', 0)
+# USD_amount = Numeric with sprintf('%.2f', 0)
+# From = character
+# To = character
+# Description = character
+### ITF adding for creditExpenses
+# ITF = Numeric with sprintf('%.2f', 0)
+
+## for credit cards
+# Bank = character
+# Card_label = character
+# limit = Numeric with sprintf('%.2f', 0)
+# Billing_Closure = Numeric with sprintf('%.2f', 0)
+# Payment_Due_Date = date with strptime(as.character(Sys.Date()), '%Y-%m-%d') %>% format('%Y-%m-%d')
+# Payment_Day = date with strptime(as.character(Sys.Date()), '%Y-%m-%d') %>% format('%Y-%m-%d')
+
+# from_who = character
+# to_whom = character
+# date_of_debt = date with strptime(as.character(Sys.Date()), '%Y-%m-%d') %>% format('%Y-%m-%d')
+# debt_amount = Numeric with sprintf('%.2f', 0)
+# USD_price = Numeric with sprintf('%.2f', 0)
+# USD_amount = Numeric with sprintf('%.2f', 0)
+# paymentInstallment = Numeric with sprintf('%.2f', 0)
+# Payment_Due_Date = date with strptime(as.character(Sys.Date()), '%Y-%m-%d') %>% format('%Y-%m-%d')
+
+generate_empty = function(NAs = F, datasetFormat = NULL, setDefault = T){
+  if(is.null(datasetFormat)) stop('generate_empty() needs datasetFormat')
+  
+  fill_default_data = function(df){
+    # browser()
+    dateType = c('Date', 'Payment_Due_Date', 'Payment_Day', 'date_of_debt')
+    numeric_currencyType = c('Amount', 'USD_price', 'USD_amount', 'ITF',
+                             'limit', 'Billing_Closure', 'debt_amount',
+                             'paymentInstallment')
+    
+    ## Assigning date default format
+    x_pivot = colnames(df) %in% dateType
+    if(any(x_pivot)){
+      df[, x_pivot] = strptime(as.character(Sys.Date()), '%Y-%m-%d') %>% 
+        format('%Y-%m-%d')
+    }
+    
+    ## Assigning numeric currency
+    x_pivot = colnames(df) %in% numeric_currencyType
+    if(any(x_pivot)){
+      df[, x_pivot] = sprintf('%.2f', 0)
+    }
+    
+    return(df)
   }
   
-  if(NAs){
-    a = data.frame(Date = NA,
-                   Amount = NA,
-                   Currency = NA,
-                   USD_price = NA,
-                   USD_amount = NA,
-                   From = NA,
-                   To = NA,
-                   Description = NA,
-                   In_Out = NA)
-    return(a)
+  values = ifelse(NAs, NA, character(0))
+  dimen = dim(datasetFormat)[2]
+  matr = matrix(values, 1, dimen) %>% data.frame()
+  colnames(matr) = colnames(datasetFormat)
+  if(setDefault){
+    matr = fill_default_data(matr)
   }
-  a = data.frame(Date = character(0),
-                Amount = character(0),
-                Currency = character(0),
-                USD_price = character(0),
-                USD_amount = character(0),
-                From = character(0),
-                To = character(0),
-                Description = character(0),
-                In_Out = character(0))
-  return(a)
+  return(matr)
 }
 
-
-new_Data = generate_empty()
+new_Data = list(Expenses = generate_empty(datasetFormat = baseExpenses),
+                Income = generate_empty(datasetFormat = baseIncome),
+                CreditCards = generate_empty(datasetFormat = baseCreditCards),
+                CreditExpenses = generate_empty(datasetFormat = baseCreditExpenses),
+                Debt = generate_empty(datasetFormat = baseDebt))
 
 ## Padronizing the in_out variable
 values_inout = c('in', 'out', 'earned', 'spent', 1, -1)
 
+## Showing modules
+
+table_suits_UI <- function(id) {
+  ns <- NS(id)
+  tagList(
+    DT::dataTableOutput(ns('mySheet')),
+    fluidRow(
+      column(2,
+             numericInput(ns('indexToDrop'), 'Index', min = 0, value = 0)),
+      column(1,
+             br(),
+             actionButton(ns('dropline'), 'Drop Line')),
+      column(6,
+             br(),
+             actionButton(ns('addline'), 'Add Line'))
+    )
+  )
+}
+
+## in this case, reactivePort will be theFile, because it needs to be check if it is null
+table_suits_Server <- function(id, reactivePort, section) { 
+  moduleServer(
+    id,
+    function(input, output, session) {
+      ## preparing the display for the data
+      
+      output$mySheet = renderDT({
+        if(!is.null(reactivePort[['data']])){
+          file_u = reactivePort[['data']]
+          return(file_u[[section]])
+        }
+      },
+      editable = list(target = 'cell', desible = list(columns = c(5))), 
+      server = T,
+      selection = 'single',
+      class = 'cell-border stripe')
+      
+      ## Adding a line to the dataset
+      addme_lines = reactive({
+        file_u = reactivePort[['data']][[section]]
+        
+        new_line = generate_empty(datasetFormat = file_u)
+        reactivePort[['data']][[section]] = rbind(file_u, new_line)
+        
+        updateNumericInput(inputId = 'indexToDrop', 
+                           value = nrow(reactivePort[['data']][[section]]))
+      })
+      
+      observeEvent(input$addline, {
+        addme_lines()
+      })
+      
+      observeEvent(input$dropline, {
+        # The drop line section doesn't conserve the indexes, it reformulates them
+        pivot = reactivePort[['data']][[section]]
+        if(nrow(pivot) > 1){ ## Can't drop more lines than 1
+          pivot = pivot[-input$indexToDrop, ]
+          
+          # Reformulating indexes
+          rownames(pivot) = 1:nrow(pivot)
+          reactivePort[['data']][[section]] = pivot
+          updateNumericInput(inputId = 'indexToDrop', 
+                             value = nrow(reactivePort[['data']][[section]])) 
+        }else{
+          showNotification('Can\'t drop more lines!', type = 'warning')
+        }
+      })
+      
+      # updating input$indexToDrop to then delete, or drop, a selected line
+      observeEvent(input$mySheet_rows_selected, {
+        updateNumericInput(inputId = 'indexToDrop',
+                           value = input$mySheet_rows_selected)
+      })
+      
+      ## Adicionando y editando datos
+      
+      observeEvent(input$mySheet_cell_edit, {
+        
+        info = input$mySheet_cell_edit
+        row_dt = info$row
+        col_dt = info$col
+        value_dt = info$value
+        
+        file_u = reactivePort[['data']][[section]]
+        
+        # getting the colname selected
+        c_names = colnames(file_u)[col_dt]
+        
+        ### variables that belong to the evaluation:
+        dateType = c('Date', 'Payment_Due_Date', 'Payment_Day', 'date_of_debt')
+        numeric_currencyType = c('Amount', 'USD_price', 'USD_amount', 'ITF',
+                                 'limit', 'Billing_Closure', 'debt_amount',
+                                 'paymentInstallment')
+        
+        ## If the input doesn't belong to the format, this section stops with a null
+        list_values = list(value_dt, c_names)
+        if(c_names %in% dateType){
+          value_dt = evaluate_data[['Date_type']](list_values)
+        }else if(c_names %in% numeric_currencyType){
+          value_dt = evaluate_data[['numeric_currency_type']](list_values)
+        }
+        
+        file_u = reactivePort[['data']][[section]]
+        
+        file_u[row_dt, col_dt] = value_dt
+        reactivePort[['data']][[section]] = file_u
+        
+        if(nrow(file_u) == row_dt){
+          addme_lines()
+        }
+      })
+      
+      ## Bellow we have a list of functions
+      ## one function per variable type (date type, numeric currency type, character type)
+      evaluate_data = list(
+        Date_type = function(value_list){
+          fecha = value_list[[1]]
+          fecha_format = strptime(as.character(fecha), '%Y-%m-%d') %>%
+            format('%Y-%m-%d')
+          gotrep = grepl(pattern = '^\\d{2}/\\d{2}/\\d{4}$', x = fecha)
+          
+          if(is.na(fecha_format) | !gotrep){
+            showNotification('The date format must be YYYY-MM-DD',
+                             type = 'warning')
+            return(strptime(as.character(Sys.Date()), '%Y-%m-%d') %>%
+                     format('%Y-%m-%d'))
+          }else{return(fecha)}
+        },
+        numeric_currency_type = function(value_list){
+          value = value_list[[1]] %>% as.numeric()
+          if(is.na(value)){
+            showNotification('You got to insert a number. Don\'t use a comma',
+                             type = 'warning')
+            return('0.00')
+          }else{return(value)}
+        }
+      )
+      
+    }
+  )
+}
+
+## Tabs for displaying tables or imgs
 display_tabIMG = tabsetPanel(
   id = 'display_it',
   type = 'hidden',
   tabPanel('meanWhileIMG',
+           tags$h3('Upload your data to proceed'),
            imageOutput('imagem_meanwhile')
            #HTML('<center><img src="shiba_dance.gif" width="400" type="image/gif"></center>')
            #HTML('<center><img src="shiba_dance.gif" width="200" type="image/gif"></center>')
            ),
   tabPanel('table',
-           DT::dataTableOutput('mySheet'),
-           fluidRow(
-             column(2,
-                    numericInput('indexToDrop', 'Index', min = 0, value = 0)),
-             column(1,
-                    br(),
-                    actionButton('dropline', 'Drop Line')),
-             column(6,
-                    br(),
-                    actionButton('addline', 'Add Line')),
-             column(1,
-                    br(),
-                    downloadButton('downloadData', 'Download'))
-           ))
+           table_suits_UI(id = 'teste12')
+           )
 )
 
 # Define UI for application that draws a histogram
 ui <- fluidPage( #theme = bslib::bs_theme(bootswatch = "darkly"),
-  fluidRow(column(6,
+  fluidRow(column(4,
                   tags$h1('Practical Sheet')),
+           column(4,
+                  br(),
+                  selectInput('currency_list1',
+                                label = 'Currency',
+                                choices = currency_list$currency)
+           ),
            column(4,
                   tags$h1(textOutput('totalValue')),
                   column(6, tags$h6(textOutput('USD_pricing'))))),
   tabsetPanel(type = 'tabs',
               br(),
-              tabPanel('Record',
+              tabPanel('Upload',
                        fixedRow(
                          column(6,
                                 column(4,
                                        fileInput('inputData', 'Import your Data')),
-                                column(4,
+                                column(2,
                                        br(),
                                        actionButton('newDoc', 'New file')),
-                                column(4,selectInput('currency_list1', 
-                                                     label = 'Currency',
-                                                     choices = currency_list$currency)
-                                       )
+                                column(4,
+                                       selectInput('sampleSheet', label = 'Sheets:',
+                                                   choices = c('Upload your file'))),
+                                column(2,
+                                       ## this button could be put more to the right
+                                       br(),
+                                       downloadButton('downloadData', 'Download'))
                          )
                        ),
+                       DT::dataTableOutput('sampleMyFiles')
+                       ),
+              tabPanel('Expenses',
                        display_tabIMG
                        ),
+              tabPanel('Income',
+                       tags$h1('Here comes the income session')),
               tabPanel('Credit',
                        shinyWidgets::verticalTabsetPanel(
-                         id = 'creditHistory',
+                         id = 'creditCards',
                          verticalTabPanel(
                            title = 'My Cards',
-                           tags$h1('Hello'),
+                           tags$h1('Here comes the credit cards record'),
                            box_height = "50px"
                          ),
                          verticalTabPanel(
                            title = 'My Expenses',
-                           tags$h1('world')
+                           tags$h1('Here comes the credit expenses')
                          )
-                       ))
+                       )),
+              tabPanel('Debt',
+                       tags$h1('Here comes the debt records'))
     
   )
   
@@ -124,6 +313,10 @@ ui <- fluidPage( #theme = bslib::bs_theme(bootswatch = "darkly"),
 
 # Define server logic required to draw a histogram
 server <- function(input, output) {
+  
+  ###### Auxiliar functions ####################
+  ## creating the universal value
+  theFile = reactiveValues(data = NULL, other = NULL)
   
   ## creating a notification function personalized
   show_semaforo = function(message, RedYellowGreenBlue = NULL){
@@ -137,6 +330,19 @@ server <- function(input, output) {
     
   }
   
+  ## A function for checking the data format
+  dataset_checking = function(a_file, the_file){
+    action_boolean = ifelse(all(colnames(a_file) == colnames(the_file)), T, F)
+    return(action_boolean)
+  }
+  
+  ## ----------------------------------------------------------------------------------------- ##
+  
+  ###### Upload/New Data Section ####################
+  
+  ## displaying a sample of the data uploaded
+  
+  
   ## Mean while picture
   ### It's a picture that will fill the main panel while there is no data inputed
   output$imagem_meanwhile <- renderImage({
@@ -149,225 +355,42 @@ server <- function(input, output) {
   },deleteFile = F)
   
   ## prepare new data
+  ### Here we generte new datasets and assign it to a reactive value as a list
   observeEvent(input$newDoc, {
-    updateTabsetPanel(inputId = 'display_it', selected = 'table')
-    theFile <<- reactiveValues(data = new_Data)
+    updateTabsetPanel(inputId = 'display_it', selected = 'table') ## this one if for expenses only
+    theFile$data = new_Data
+    updateSelectInput(inputId = 'sampleSheet', choices = c(names(new_Data)))
   })
   
-  ## import data
+  ## upload user's data
+  ###--### prepare it for multiple datasets upload
   observeEvent(input$inputData, {
-    updateTabsetPanel(inputId = 'display_it', selected = 'table')
-    file_u = read.csv(input$inputData$datapath, sep = ',')
-    theFile <<- reactiveValues(data = file_u)
-  })
-  
-  ## preparing the display for the data
-  output$mySheet = renderDT({
-    if(isTruthy(input$newDoc) | isTruthy(input$inputData)){
-      theFile$data
-    }
-  },
-  editable = list(target = 'cell', desible = list(columns = c(5))), 
-  server = T,
-  selection = 'none',
-  class = 'cell-border stripe')
-  
-  ## A function for checking the data format
-  dataset_checking = function(a_file, the_file){
-    action_boolean = ifelse(all(colnames(a_file) == colnames(the_file)), T, F)
-    return(action_boolean)
-  }
-  
-  ## Adding a line to the dataset
-  addme_lines = reactive({
-    action_boolean = dataset_checking(a_file = theFile$data,
-                                      the_file = new_Data)
-    
-    if(action_boolean){
-      new_line = generate_empty(T)
-      dateit = strptime(as.character(Sys.Date()), '%Y-%m-%d')
-      dateit = format(dateit, '%d-%m-%Y')
-      new_line[['Date']] = dateit
-      new_line[['Amount']] = sprintf('%.2f', 0)
-      new_line[['USD_price']] = sprintf('%.2f', 0)
-      new_line[['USD_amount']] = sprintf('%.2f', 0)
-      theFile$data <<- rbind(theFile$data, new_line)
+    if(tools::file_ext(input$inputData$datapath) == 'xlsx'){
+      updateTabsetPanel(inputId = 'display_it', selected = 'table') ## this one if for expenses only
+      sheets_names = readxl::excel_sheets(input$inputData$datapath)
+      file_u = list()
+      for(i in sheets_names){
+        file_u[[i]] = readxl::read_xlsx(input$inputData$datapath,sheet = i) %>% 
+          data.frame()
+      }
+      names(file_u) = stringr::str_to_sentence(sheets_names)
+      theFile$data = file_u
+      print(names(theFile$data))
+      updateSelectInput(inputId = 'sampleSheet', choices = c(names(file_u)))
     }else{
-      show_semaforo('This data has a different format from what is expected.', 2)
-      new_line = generate_empty(datasetFormat = theFile$data)
-      
-      theFile$data <<- rbind(theFile$data, new_line)
-    }
-    
-    updateNumericInput(inputId = 'indexToDrop', value = nrow(theFile$data))
-  })
-  
-  ## Adding a new line
-  observeEvent(input$addline, {
-    if(!exists('theFile')){
-      # in case the file doesn't exist, a notification will appear
-      show_semaforo('No data was submited or created yet.', 1)
-    }else{
-      addme_lines()
-      # print(theFile$data)
+      show_semaforo('It must be an excel file', 1)
     }
   })
   
-  observeEvent(input$dropline, {
-    
-    if(!exists('theFile')){
-      show_semaforo('No data was submited or created yet.', 1)
-    }else if(is.null(theFile$data) | (nrow(theFile$data) == 0)){
-      show_semaforo('No data was submited or created yet.', 1)
-    }else if(nrow(theFile$data) == 1){
-      theFile$data <<- new_Data
-    }else{
-      # The drop line section doesn't conserve the indexes, it reformulates them
-      pivot = theFile$data
-      pivot = pivot[-input$indexToDrop, ]
-      
-      # Reformulating indexes
-      rownames(pivot) = 1:nrow(pivot)
-      theFile$data <<- pivot
-      
-      updateNumericInput(inputId = 'indexToDrop', value = nrow(theFile$data)) 
-    }
-  })
+  output$sampleMyFiles = renderDT({
+    file_u = theFile$data
+    return(tail(file_u[[input$sampleSheet]]))
+  }, selection = 'none')
   
-  # updating input$indexToDrop to then delete, or drop, a selected line
-  observeEvent(input$mySheet_rows_selected, {
-    updateNumericInput(inputId = 'indexToDrop', 
-                       value = input$mySheet_rows_selected)
-  })
+  ## ----------------------------------------------------------------------------------------- ##
   
-  ## Adicionando y editando datos
-  
-  observeEvent(input$mySheet_cell_edit, {
-    
-    info = input$mySheet_cell_edit
-    row_dt = info$row
-    col_dt = info$col
-    value_dt = info$value
-    
-    
-    ## Making sure the in_out variable is either 'in' or 'out'
-    ## or 'earned' 'spent' or '1' '-1'
-    c_names = colnames(new_Data)[col_dt]
-    
-    ## generando una linsta de valores:
-    ## valordt, c_names, row_dt, col_dt
-    list_values = list(value_dt, c_names)
-    evaluate_data[[c_names]](list_values)
-    
-    pivot = theFile$data
-    
-    pivot[row_dt, col_dt] = value_dt
-    theFile$data <<- pivot
-    
-    if(nrow(pivot) == row_dt){
-      addme_lines()
-    }
-  })
-  
-  ## Bellow we have a list of functions
-  ## one function per variable
-  evaluate_data = list(
-    Date = function(value_list){
-      fecha = value_list[[1]]
-      
-      ## Getting the wantted pattern for dates
-      ## dd/mm/yyyy, no more digits
-      ## the ^ in the regex indicates the beggining of the pattern
-      ## the $ means the end of the regex
-      gotrep = grepl(pattern = '^\\d{2}/\\d{2}/\\d{4}$', x = fecha)
-      
-      if(!gotrep){ ## Verifying that the date follows the global pattern date
-        show_semaforo('Date input must be in this numerical format: dd/mm/yyyy', 
-                      2)
-        return(NULL)
-      }else{
-        dayMonth = c(31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
-        names(dayMonth) = 1:12
-        
-        ## Detecting the LEAP year
-        is_leap_year <- function(year) {
-          ifelse(((year %% 4 == 0 && year %% 100 != 0) || year %% 400 == 0),
-                 return(TRUE),  # It's a leap year,
-                 return(FALSE))  # It's not a leap year
-        }
-        
-        ## Processing the date as a numeric vector
-        date_num = as.vector(str_split_fixed(fecha, '/', 3)) %>% as.numeric()
-        
-        ## The year must be greater than 2000
-        if(date_num[3] < 2000){
-          show_semaforo('Please input a date after 01/01/2000', 2)
-          return(NULL)
-        }
-        
-        ## month data must be between 1 and 12
-        if(!(date_num[2] %in% 1:12)){
-          show_semaforo('The month must be between 1 and 12', 2)
-          return(NULL)
-        }
-        
-        ## day must be grater or equal to 1
-        if(date_num[1] < 1){
-          show_semaforo('The day must be no less than 01.' , 2)
-        }
-        
-        ## For the second month in a leap year
-        if(date_num[2] == 2 & is_leap_year(date_num[3])){
-          ## last day of february must be till 29
-          ifelse(date_num[1] > 29, 
-                 show_semaforo('The day must be less than 29', 2),
-                 return(NULL))
-          
-          ## else, must be till 30 or 31, depending on the month
-        }else if(!(date_num[1] <= dayMonth[date_num[2]])){
-          nota_date = paste('Input a valid day, must be bellow ', 
-                            dayMonth[date_num[2]])
-          show_semaforo(nota_date, 2)
-          return(NULL)
-        }
-      }
-    },
-    Amount = function(value_list){
-      value = value_list[[1]] %>% as.numeric()
-      if(is.na(value)){
-        show_semaforo('The amount must be a number', 2)
-        return(NULL)
-      }
-    },
-    Currency = function(value_list){},
-    USD_price = function(value_list){
-      value = value_list[[1]] %>% as.numeric()
-      if(is.na(value)){
-        show_semaforo('The USD_price must be a number', 2)
-        return(NULL)
-      }
-    },
-    USD_amount = function(value_list){
-      value = value_list[[1]] %>% as.numeric()
-      if(is.na(value)){
-        show_semaforo('The USD_amount must be a number', 2)
-        return(NULL)
-      }
-    },
-    Description = function(value_list){},
-    In_Out = function(value_list){
-      value = value_list[[1]]
-      c_name = value_list[[2]]
-      ## Verifying that the value input is padronized
-      value_dt = stringr::str_to_lower(value)
-      if(!(value_dt %in% values_inout)){
-        message_me = paste('You must input: in, out, earned, spent, 1 or -1 ')
-        show_semaforo(message_me, 2)
-        return(NULL)
-      }
-      
-    }
-  )
+  ## Display of #Expenses section
+  table_suits_Server('teste12', reactivePort = theFile, section = 'Expenses')
   
   
   ### To Download the data
@@ -501,4 +524,3 @@ server <- function(input, output) {
 
 # Run the application 
 shinyApp(ui = ui, server = server)
-
