@@ -6,9 +6,11 @@ library(reticulate)
 library(RSQLite)
 library(DBI)
 library(shinyWidgets)
+library(writexl)
 reticulate::import('requests')
 reticulate::import('pandas')
 reticulate::import('datetime')
+
 
 ### DataSets format
 currency_list = read.csv2('currency_list.csv', sep = ',')
@@ -96,6 +98,7 @@ values_inout = c('in', 'out', 'earned', 'spent', 1, -1)
 
 ## Showing modules
 
+### Modules to record inputs into the tables and display them on the hole app
 table_suits_UI <- function(id) {
   ns <- NS(id)
   tagList(
@@ -142,10 +145,12 @@ table_suits_Server <- function(id, reactivePort, section) {
                            value = nrow(reactivePort[['data']][[section]]))
       })
       
+      ## Action to add a line
       observeEvent(input$addline, {
         addme_lines()
       })
       
+      ## Action to delete a line
       observeEvent(input$dropline, {
         # The drop line section doesn't conserve the indexes, it reformulates them
         pivot = reactivePort[['data']][[section]]
@@ -236,20 +241,77 @@ table_suits_Server <- function(id, reactivePort, section) {
   )
 }
 
-## Tabs for displaying tables or imgs
-display_tabIMG = tabsetPanel(
-  id = 'display_it',
-  type = 'hidden',
-  tabPanel('meanWhileIMG',
-           tags$h3('Upload your data to proceed'),
-           imageOutput('imagem_meanwhile')
-           #HTML('<center><img src="shiba_dance.gif" width="400" type="image/gif"></center>')
-           #HTML('<center><img src="shiba_dance.gif" width="200" type="image/gif"></center>')
-           ),
-  tabPanel('table',
-           table_suits_UI(id = 'teste12')
-           )
-)
+display_tabIMG = function(id){
+  ns <- NS(id)
+  tagList(
+    tabsetPanel(
+      id = ns('display_it'),
+      type = 'hidden',
+      tabPanel('meanWhileIMG',
+               tags$h3('Upload your data to proceed'),
+               imageOutput(ns('imagem_meanwhile'))
+      ),
+      tabPanel('table',
+               table_suits_UI(id = ns('teste12'))
+      )
+    )
+  )
+}
+
+display_tabIMG_server = function(id, newDoc_in, usersDoc_in,  samplecols,
+                                 reactivePort, section){
+  # stopifnot(is.reactive(newDoc_in))
+  moduleServer(
+    id,
+    function(input, output, session){
+      observeEvent(newDoc_in(), {
+        updateTabsetPanel(inputId = 'display_it', selected = 'table')
+      })
+
+      ## upload user's data
+      ###--### prepare it for multiple datasets upload
+      observeEvent(usersDoc_in(), {
+        if(tools::file_ext(usersDoc_in()$datapath) == 'xlsx'){
+          updateTabsetPanel(inputId = 'display_it', selected = 'table') ## this one if for expenses only
+          sheets_names = readxl::excel_sheets(usersDoc_in()$datapath)
+          file_u = list()
+          for(i in sheets_names){
+            file_u[[i]] = readxl::read_xlsx(usersDoc_in()$datapath,sheet = i) %>%
+              data.frame()
+          }
+          names(file_u) = stringr::str_to_sentence(sheets_names)
+          reactivePort$data <- file_u
+          print(names(reactivePort[['data']]))
+        }else{
+          showNotification('It must be an excel file', type = 'error')
+        }
+      })
+      
+      output$sampleMyFiles = renderDT({
+        file_u = reactivePort[['data']]
+        return(tail(file_u[[samplecols()]]))
+      }, selection = 'none')
+      
+      output$imagem_meanwhile <- renderImage({
+        list(src = "shiba_dance.gif",
+             height = 300, 
+             width = 300, 
+             type = "image/gif",
+             style="display: block; margin-left: auto; margin-right: auto;",
+             align = "center")
+      },deleteFile = F)
+      
+      table_suits_Server('teste12',
+                         reactivePort = reactivePort,
+                         section = section)
+      
+      #return the reactive value#
+      # return(reactiveVal(reactivePort))
+    }
+  )
+}
+
+
 
 # Define UI for application that draws a histogram
 ui <- fluidPage( #theme = bslib::bs_theme(bootswatch = "darkly"),
@@ -286,25 +348,29 @@ ui <- fluidPage( #theme = bslib::bs_theme(bootswatch = "darkly"),
                        DT::dataTableOutput('sampleMyFiles')
                        ),
               tabPanel('Expenses',
-                       display_tabIMG
+                       display_tabIMG('expense_input')
                        ),
               tabPanel('Income',
-                       tags$h1('Here comes the income session')),
+                       display_tabIMG('income_input')
+                       ),
               tabPanel('Credit',
                        shinyWidgets::verticalTabsetPanel(
                          id = 'creditCards',
                          verticalTabPanel(
                            title = 'My Cards',
-                           tags$h1('Here comes the credit cards record'),
+                           # tags$h1('Here comes the credit cards record'),
+                           display_tabIMG('creditCards_input'),
                            box_height = "50px"
                          ),
                          verticalTabPanel(
                            title = 'My Expenses',
-                           tags$h1('Here comes the credit expenses')
+                           # tags$h1('Here comes the credit expenses')
+                           display_tabIMG('creditExpenses_input')
                          )
                        )),
               tabPanel('Debt',
-                       tags$h1('Here comes the debt records'))
+                       # tags$h1('Here comes the debt records')
+                       display_tabIMG('Debt_input'))
     
   )
   
@@ -342,75 +408,110 @@ server <- function(input, output) {
   
   ## displaying a sample of the data uploaded
   
-  
-  ## Mean while picture
-  ### It's a picture that will fill the main panel while there is no data inputed
-  output$imagem_meanwhile <- renderImage({
-    list(src = "shiba_dance.gif",
-         height = 300, 
-         width = 300, 
-         type = "image/gif",
-         style="display: block; margin-left: auto; margin-right: auto;",
-         align = "center")
-  },deleteFile = F)
-  
   ## prepare new data
-  ### Here we generte new datasets and assign it to a reactive value as a list
+  ### Here we generate new datasets and assign it to a reactive value as a list
   observeEvent(input$newDoc, {
-    updateTabsetPanel(inputId = 'display_it', selected = 'table') ## this one if for expenses only
     theFile$data = new_Data
     updateSelectInput(inputId = 'sampleSheet', choices = c(names(new_Data)))
   })
   
-  ## upload user's data
-  ###--### prepare it for multiple datasets upload
-  observeEvent(input$inputData, {
-    if(tools::file_ext(input$inputData$datapath) == 'xlsx'){
-      updateTabsetPanel(inputId = 'display_it', selected = 'table') ## this one if for expenses only
-      sheets_names = readxl::excel_sheets(input$inputData$datapath)
-      file_u = list()
-      for(i in sheets_names){
-        file_u[[i]] = readxl::read_xlsx(input$inputData$datapath,sheet = i) %>% 
-          data.frame()
-      }
-      names(file_u) = stringr::str_to_sentence(sheets_names)
-      theFile$data = file_u
-      print(names(theFile$data))
-      updateSelectInput(inputId = 'sampleSheet', choices = c(names(file_u)))
-    }else{
-      show_semaforo('It must be an excel file', 1)
-    }
+  # ## upload user's data
+  # ###--### prepare it for multiple datasets upload
+  # observeEvent(input$inputData, {
+  #   if(tools::file_ext(input$inputData$datapath) == 'xlsx'){
+  #     updateTabsetPanel(inputId = 'display_it', selected = 'table') ## this one if for expenses only
+  #     sheets_names = readxl::excel_sheets(input$inputData$datapath)
+  #     file_u = list()
+  #     for(i in sheets_names){
+  #       file_u[[i]] = readxl::read_xlsx(input$inputData$datapath,sheet = i) %>%
+  #         data.frame()
+  #     }
+  #     names(file_u) = stringr::str_to_sentence(sheets_names)
+  #     theFile$data = file_u
+  #     print(names(theFile$data))
+  #     updateSelectInput(inputId = 'sampleSheet', choices = c(names(file_u)))
+  #   }else{
+  #     show_semaforo('It must be an excel file', 1)
+  #   }
+  # })
+  
+  
+  return_sample = eventReactive(input$sampleSheet, {
+    return(tail(theFile$data[[input$sampleSheet]]))
   })
   
   output$sampleMyFiles = renderDT({
+    print('hello_printing Samples')
     file_u = theFile$data
-    return(tail(file_u[[input$sampleSheet]]))
+    updateSelectInput(inputId = 'sampleSheet', choices = c(names(file_u)))
+    return(return_sample())
   }, selection = 'none')
   
   ## ----------------------------------------------------------------------------------------- ##
   
   ## Display of #Expenses section
-  table_suits_Server('teste12', reactivePort = theFile, section = 'Expenses')
+  # file_piv = 
+  display_tabIMG_server(id = 'expense_input',
+                        newDoc_in = reactive(input$newDoc), 
+                        usersDoc_in = reactive(input$inputData),
+                        samplecols = reactive(input$sampleSheet),
+                        reactivePort = theFile,
+                        section = 'Expenses')
   
+  ## Display of #Income section
+  # file_piv = 
+  display_tabIMG_server(id = 'income_input',
+                        newDoc_in = reactive(input$newDoc),
+                        usersDoc_in = reactive(input$inputData),
+                        samplecols = reactive(input$sampleSheet),
+                        reactivePort = theFile,
+                        section = 'Income')
+  
+  
+  ## Display of #Credit section
+  ### #CreditCards. 
+  # file_piv = 
+  display_tabIMG_server(id = 'creditCards_input',
+                        newDoc_in = reactive(input$newDoc), 
+                        usersDoc_in = reactive(input$inputData),
+                        samplecols = reactive(input$sampleSheet),
+                        reactivePort = theFile,
+                        section = 'Creditcards')
+
+  ### #CreditExpenses
+  # file_piv = 
+  display_tabIMG_server(id = 'creditExpenses_input',
+                        newDoc_in = reactive(input$newDoc),
+                        usersDoc_in = reactive(input$inputData),
+                        samplecols = reactive(input$sampleSheet),
+                        reactivePort = theFile,
+                        section = 'Credit_expenses')
+  
+  ### #Debt
+  # file_piv = 
+  display_tabIMG_server(id = 'Debt_input',
+                        newDoc_in = reactive(input$newDoc), 
+                        usersDoc_in = reactive(input$inputData),
+                        samplecols = reactive(input$sampleSheet),
+                        reactivePort = theFile,
+                        section = 'Debt')
+  
+  # observe({theFile = file_piv()})
   
   ### To Download the data
   output$downloadData <- downloadHandler(
     filename = function() {
       # Use the selected dataset as the suggested file name
-      paste0('myData', ".csv")
+      paste0('myData', ".xlsx")
     },
     content = function(file) {
       # Write the dataset to the `file` that will be downloaded
-      if(exists('theFile')){
-        if(nrow(theFile$data) == 0){
-          show_semaforo('There is no data to save', 1)
-          return(NULL)
-        }else{
-          write.csv(theFile$data, file)
-        }
-      }else{
+      if(is.null(theFile$data)){
         show_semaforo('There is no data to save', 1)
         return(NULL)
+      }else{
+        writexl::write_xlsx(theFile$data, file)
+        # write.csv(theFile$data, file)
       }
     }
   )
