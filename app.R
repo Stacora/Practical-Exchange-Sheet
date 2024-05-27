@@ -89,8 +89,8 @@ generate_empty = function(NAs = F, datasetFormat = NULL, setDefault = T){
 
 new_Data = list(Expenses = generate_empty(datasetFormat = baseExpenses),
                 Income = generate_empty(datasetFormat = baseIncome),
-                CreditCards = generate_empty(datasetFormat = baseCreditCards),
-                CreditExpenses = generate_empty(datasetFormat = baseCreditExpenses),
+                Creditcards = generate_empty(datasetFormat = baseCreditCards),
+                Credit_expenses = generate_empty(datasetFormat = baseCreditExpenses),
                 Debt = generate_empty(datasetFormat = baseDebt))
 
 ## Padronizing the in_out variable
@@ -267,30 +267,10 @@ display_tabIMG_server = function(id, newDoc_in, usersDoc_in,  samplecols,
       observeEvent(newDoc_in(), {
         updateTabsetPanel(inputId = 'display_it', selected = 'table')
       })
-
-      ## upload user's data
-      ###--### prepare it for multiple datasets upload
-      observeEvent(usersDoc_in(), {
-        if(tools::file_ext(usersDoc_in()$datapath) == 'xlsx'){
-          updateTabsetPanel(inputId = 'display_it', selected = 'table') ## this one if for expenses only
-          sheets_names = readxl::excel_sheets(usersDoc_in()$datapath)
-          file_u = list()
-          for(i in sheets_names){
-            file_u[[i]] = readxl::read_xlsx(usersDoc_in()$datapath,sheet = i) %>%
-              data.frame()
-          }
-          names(file_u) = stringr::str_to_sentence(sheets_names)
-          reactivePort$data <- file_u
-          print(names(reactivePort[['data']]))
-        }else{
-          showNotification('It must be an excel file', type = 'error')
-        }
-      })
       
-      output$sampleMyFiles = renderDT({
-        file_u = reactivePort[['data']]
-        return(tail(file_u[[samplecols()]]))
-      }, selection = 'none')
+      observeEvent(usersDoc_in(), {
+        updateTabsetPanel(inputId = 'display_it', selected = 'table')
+      })
       
       output$imagem_meanwhile <- renderImage({
         list(src = "shiba_dance.gif",
@@ -304,9 +284,6 @@ display_tabIMG_server = function(id, newDoc_in, usersDoc_in,  samplecols,
       table_suits_Server('teste12',
                          reactivePort = reactivePort,
                          section = section)
-      
-      #return the reactive value#
-      # return(reactiveVal(reactivePort))
     }
   )
 }
@@ -332,13 +309,14 @@ ui <- fluidPage( #theme = bslib::bs_theme(bootswatch = "darkly"),
                        fixedRow(
                          column(6,
                                 column(4,
-                                       fileInput('inputData', 'Import your Data')),
+                                       fileInput('inputData', 'Upload your Data')),
                                 column(2,
                                        br(),
                                        actionButton('newDoc', 'New file')),
                                 column(4,
                                        selectInput('sampleSheet', label = 'Sheets:',
-                                                   choices = c('Upload your file'))),
+                                                   choices = c('Upload your file'),
+                                                   selected = character(0))),
                                 column(2,
                                        ## this button could be put more to the right
                                        br(),
@@ -412,38 +390,36 @@ server <- function(input, output) {
   ### Here we generate new datasets and assign it to a reactive value as a list
   observeEvent(input$newDoc, {
     theFile$data = new_Data
-    updateSelectInput(inputId = 'sampleSheet', choices = c(names(new_Data)))
+    updateSelectInput(inputId = 'sampleSheet', choices = c(names(theFile$data)))
   })
   
-  # ## upload user's data
-  # ###--### prepare it for multiple datasets upload
-  # observeEvent(input$inputData, {
-  #   if(tools::file_ext(input$inputData$datapath) == 'xlsx'){
-  #     updateTabsetPanel(inputId = 'display_it', selected = 'table') ## this one if for expenses only
-  #     sheets_names = readxl::excel_sheets(input$inputData$datapath)
-  #     file_u = list()
-  #     for(i in sheets_names){
-  #       file_u[[i]] = readxl::read_xlsx(input$inputData$datapath,sheet = i) %>%
-  #         data.frame()
-  #     }
-  #     names(file_u) = stringr::str_to_sentence(sheets_names)
-  #     theFile$data = file_u
-  #     print(names(theFile$data))
-  #     updateSelectInput(inputId = 'sampleSheet', choices = c(names(file_u)))
-  #   }else{
-  #     show_semaforo('It must be an excel file', 1)
-  #   }
-  # })
-  
+  ## upload user's data
+  ###--### prepare it for multiple datasets upload
+  observeEvent(input$inputData, {
+    if(tools::file_ext(input$inputData$datapath) == 'xlsx'){
+      updateTabsetPanel(inputId = 'display_it', selected = 'table') ## this one if for expenses only
+      sheets_names = readxl::excel_sheets(input$inputData$datapath)
+      file_u = list()
+      for(i in sheets_names){
+        file_u[[i]] = readxl::read_xlsx(input$inputData$datapath,sheet = i) %>%
+          data.frame()
+      }
+      names(file_u) = stringr::str_to_sentence(sheets_names)
+      theFile$data = file_u
+      print(names(theFile$data))
+      updateSelectInput(inputId = 'sampleSheet', choices = c(names(file_u)))
+    }else{
+      show_semaforo('It must be an excel file', 1)
+    }
+    updateSelectInput(inputId = 'sampleSheet', choices = c(names(theFile$data)))
+  })
+
   
   return_sample = eventReactive(input$sampleSheet, {
     return(tail(theFile$data[[input$sampleSheet]]))
   })
   
   output$sampleMyFiles = renderDT({
-    print('hello_printing Samples')
-    file_u = theFile$data
-    updateSelectInput(inputId = 'sampleSheet', choices = c(names(file_u)))
     return(return_sample())
   }, selection = 'none')
   
@@ -452,45 +428,45 @@ server <- function(input, output) {
   ## Display of #Expenses section
   # file_piv = 
   display_tabIMG_server(id = 'expense_input',
-                        newDoc_in = reactive(input$newDoc), 
+                        newDoc_in = reactive(input$newDoc),
                         usersDoc_in = reactive(input$inputData),
                         samplecols = reactive(input$sampleSheet),
                         reactivePort = theFile,
                         section = 'Expenses')
   
   ## Display of #Income section
-  # file_piv = 
+  # file_piv =
   display_tabIMG_server(id = 'income_input',
                         newDoc_in = reactive(input$newDoc),
                         usersDoc_in = reactive(input$inputData),
                         samplecols = reactive(input$sampleSheet),
                         reactivePort = theFile,
                         section = 'Income')
-  
-  
+
+
   ## Display of #Credit section
-  ### #CreditCards. 
-  # file_piv = 
+  ### #CreditCards.
+  # file_piv =
   display_tabIMG_server(id = 'creditCards_input',
-                        newDoc_in = reactive(input$newDoc), 
+                        newDoc_in = reactive(input$newDoc),
                         usersDoc_in = reactive(input$inputData),
                         samplecols = reactive(input$sampleSheet),
                         reactivePort = theFile,
                         section = 'Creditcards')
 
   ### #CreditExpenses
-  # file_piv = 
+  # file_piv =
   display_tabIMG_server(id = 'creditExpenses_input',
                         newDoc_in = reactive(input$newDoc),
                         usersDoc_in = reactive(input$inputData),
                         samplecols = reactive(input$sampleSheet),
                         reactivePort = theFile,
                         section = 'Credit_expenses')
-  
+
   ### #Debt
-  # file_piv = 
+  # file_piv =
   display_tabIMG_server(id = 'Debt_input',
-                        newDoc_in = reactive(input$newDoc), 
+                        newDoc_in = reactive(input$newDoc),
                         usersDoc_in = reactive(input$inputData),
                         samplecols = reactive(input$sampleSheet),
                         reactivePort = theFile,
