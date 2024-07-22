@@ -7,10 +7,12 @@ library(RSQLite)
 library(DBI)
 library(shinyWidgets)
 library(writexl)
+#library(shiny.semantic)
+#reticulate::use_condaenv('base')
 reticulate::import('requests')
 reticulate::import('pandas')
 reticulate::import('datetime')
-
+# setwd("/Users/franciscotacora/Desktop/Folders/books/MasteringShiny/practical/practical_finance")
 
 ### DataSets format
 currency_list = read.csv2('currency_list.csv', sep = ',')
@@ -155,7 +157,13 @@ table_suits_Server <- function(id, reactivePort, section) {
         # The drop line section doesn't conserve the indexes, it reformulates them
         pivot = reactivePort[['data']][[section]]
         if(nrow(pivot) > 1){ ## Can't drop more lines than 1
-          pivot = pivot[-input$indexToDrop, ]
+          if(input$indexToDrop > 1){
+            index_delete = input$indexToDrop
+          }else{
+            index_delete = nrow(pivot)
+          }
+          
+          pivot = pivot[-index_delete, ]
           
           # Reformulating indexes
           rownames(pivot) = 1:nrow(pivot)
@@ -236,7 +244,7 @@ table_suits_Server <- function(id, reactivePort, section) {
           }else{return(value)}
         }
       )
-      
+      ####
     }
   )
 }
@@ -288,7 +296,45 @@ display_tabIMG_server = function(id, newDoc_in, usersDoc_in,  samplecols,
   )
 }
 
+## Total USD output
+Total_USD_UI = function(id){
+  ns = NS(id)
+  tagList(
+    uiOutput(ns('totalValue'))
+  )
+}
 
+Total_USD_Server = function(id, reactivePort){
+  moduleServer(
+    id,
+    function(input, output, session){
+      totalUsD = reactive({
+        if(is.null(reactivePort[['data']]) || 
+           (nrow(reactivePort[['data']][['Expenses']]) == 0 && nrow(reactivePort[['data']][['Income']]) == 0)){
+          return('0,00 USD')
+        }else{
+          pivot_Expenses = reactivePort[['data']][['Expenses']][['USD_amount']] %>%
+            as.numeric() %>% sum()
+          pivot_Income = reactivePort[['data']][['Income']][['USD_amount']] %>% 
+            as.numeric() %>% sum()
+          pivot = pivot_Income - pivot_Expenses
+          
+          total = sprintf('%.2f', sum(pivot, na.rm = TRUE))
+          total = paste(total, ' USD')
+          return(total)
+        }
+      })
+      
+      output$totalValue = renderUI({
+        total <- totalUsD()
+        color <- ifelse(as.numeric(gsub("[^0-9.-]", "", total)) > 0, "green", 
+                        ifelse(as.numeric(gsub("[^0-9.-]", "", total)) < 0, 'red',
+                               'black'))
+        tags$h1(style = paste("color:", color, ";"), total)
+      })
+    }
+  )
+}
 
 # Define UI for application that draws a histogram
 ui <- fluidPage( #theme = bslib::bs_theme(bootswatch = "darkly"),
@@ -299,10 +345,13 @@ ui <- fluidPage( #theme = bslib::bs_theme(bootswatch = "darkly"),
                   selectInput('currency_list1',
                                 label = 'Currency',
                                 choices = currency_list$currency)
-           ),
+                  ),
            column(4,
-                  tags$h1(textOutput('totalValue')),
-                  column(6, tags$h6(textOutput('USD_pricing'))))),
+                  #tags$h1(textOutput('totalValue')),
+                  Total_USD_UI('totalUSD'),
+                  tags$h6(textOutput('USD_pricing'))
+                  )
+           ),
   tabsetPanel(type = 'tabs',
               br(),
               tabPanel('Upload',
@@ -393,6 +442,10 @@ server <- function(input, output) {
     updateSelectInput(inputId = 'sampleSheet', choices = c(names(theFile$data)))
   })
   
+  # observeEvent(input$inputData, {
+  #   updateSelectInput(inputId = 'sampleSheet', choices = c(names(theFile$data)))
+  # })
+  
   ## upload user's data
   ###--### prepare it for multiple datasets upload
   observeEvent(input$inputData, {
@@ -415,12 +468,27 @@ server <- function(input, output) {
   })
 
   
-  return_sample = eventReactive(input$sampleSheet, {
-    return(tail(theFile$data[[input$sampleSheet]]))
-  })
+  # return_sample = eventReactive(input$sampleSheet, {
+  #   return(tail(theFile$data[[input$sampleSheet]]))
+  # })
   
+  sampleSheetData <- reactive({
+    input$newDoc  # trigger dependency on input$newDoc
+    input$inputData  # trigger dependency on input$inputData
+    
+    input$sampleSheet  # trigger dependency on input$sampleSheet
+    
+    if (is.null(theFile$data)) {
+      return(NULL)
+    }
+    
+    tail(theFile$data[[input$sampleSheet]])
+  })
+
+  ### Este módulo se está ejecutando dos veces, porque?
   output$sampleMyFiles = renderDT({
-    return(return_sample())
+    # return(return_sample())
+    sampleSheetData()
   }, selection = 'none')
   
   ## ----------------------------------------------------------------------------------------- ##
@@ -493,42 +561,9 @@ server <- function(input, output) {
   )
   
   
-  ### Total value output manipulation
-  inout_traductor = function(vec){
-    posiv = values_inout[c(1, 3, 5)]
-    negativ = values_inout[- c(1, 3, 5)]
-    result = ifelse(vec %in% posiv, 1, 
-                    ifelse(vec %in% negativ, -1, 0))
-  }
-  
-  totalUsD = eventReactive(input$mySheet_cell_edit,{
-    if(exists('theFile')){
-      if(nrow(theFile$data) == 0){
-        return('0,00 USD')
-      }else{
-        pivot = theFile$data[['USD_amount']] %>% as.numeric()
-        inout = theFile$data[['In_Out']] %>% str_to_lower() %>%
-          inout_traductor()
-        pivot = pivot * inout
+  ## To output the amount of total USD
+  Total_USD_Server('totalUSD', reactivePort = theFile)
 
-        total = sprintf('%.2f', sum(pivot, na.rm = T))
-        total = paste(total, ' USD')
-        return(total)
-      }
-    }else{
-      print('esto rueda?')
-      return('0,00 USD')
-    }
-  })
-  
-  output$totalValue = renderText({
-    if(is.null(input$mySheet_cell_edit)){
-      return('0,00 USD')
-    }else{
-      totalUsD()
-    }
-  })
-  
   
   ### Price of the dollar
   import_pythonscript = function(){
@@ -601,3 +636,32 @@ server <- function(input, output) {
 
 # Run the application 
 shinyApp(ui = ui, server = server)
+
+## Quiero colocar dateInput() en la columna de data de DT table. Es posible.
+## Visitar el siguiente link
+# https://stackoverflow.com/questions/55034483/shiny-widgets-in-dt-table
+# https://stackoverflow.com/questions/48160173/r-shiny-extract-values-from-numericinput-datatable-column
+
+
+
+## vamos a crear una aba más donde irán las facturas, que consistirán en tarjetas, facturas
+## fijas que se repitan.
+
+## hacer una aba donde se listarán el total de monetario en el tipo de moneda en el que fue
+## registrado.
+
+
+## Esta aplicaion necesita de internet. Por lo tanto, tengo que buscar una forma de que
+## funcione sin internet. Se me ocurrió una forma: en el script de python, hacer unas
+## lineas con el comando 'try' y si sale error, el script crea un comando que pasará a
+## R y con su existencia, R asumirá el valor más reciente que la API captó
+## O buscar como detectar si hay internet desde R mismo
+
+
+
+## Vamos a adicionar una aba más donde se visualizarán los datos de forma descriptiva
+## intentaré hacer gráficos
+## --> Vamos a adicionar una cadena de pestañas verticales por el lado izquierdo
+## habrán 3 abas. la primera de input en donde se ponen estas informaciones
+## segunda aba serán gráficos y series temporales, con tablas descriptivas.
+## tercera aba aun está por decidirse
