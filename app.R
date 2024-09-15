@@ -6,13 +6,23 @@ library(reticulate)
 library(RSQLite)
 library(DBI)
 library(shinyWidgets)
+library(shinydashboard)
 library(writexl)
-#library(shiny.semantic)
 #reticulate::use_condaenv('base')
 reticulate::import('requests')
 reticulate::import('pandas')
 reticulate::import('datetime')
 # setwd("/Users/franciscotacora/Desktop/Folders/books/MasteringShiny/practical/practical_finance")
+
+### NOTA ###
+## Sections where we have the tittle 'PATITO' are to be changed
+## It'll be explained as follows
+
+##--------- PATITO ---------
+### Explanation
+# Provisional Code
+# Provisional Code
+##==========================
 
 ### DataSets format
 currency_list = read.csv2('currency_list.csv', sep = ',')
@@ -337,72 +347,134 @@ Total_USD_Server = function(id, reactivePort){
 }
 
 # Define UI for application that draws a histogram
-ui <- fluidPage( #theme = bslib::bs_theme(bootswatch = "darkly"),
-  fluidRow(column(4,
-                  tags$h1('Practical Sheet')),
-           column(4,
-                  br(),
-                  selectInput('currency_list1',
-                                label = 'Currency',
-                                choices = currency_list$currency)
-                  ),
-           column(4,
-                  #tags$h1(textOutput('totalValue')),
-                  Total_USD_UI('totalUSD'),
-                  tags$h6(textOutput('USD_pricing'))
-                  )
-           ),
-  tabsetPanel(type = 'tabs',
-              br(),
-              tabPanel('Upload',
-                       fixedRow(
-                         column(6,
-                                column(4,
-                                       fileInput('inputData', 'Upload your Data')),
-                                column(2,
-                                       br(),
-                                       actionButton('newDoc', 'New file')),
-                                column(4,
-                                       selectInput('sampleSheet', label = 'Sheets:',
-                                                   choices = c('Upload your file'),
-                                                   selected = character(0))),
-                                column(2,
-                                       ## this button could be put more to the right
-                                       br(),
-                                       downloadButton('downloadData', 'Download'))
-                         )
+ui = dashboardPage(
+  dashboardHeader(
+    title = 'Practical Sheet',
+    titleWidth = 220
+  ),
+  dashboardSidebar(
+    width = 220,
+    sidebarMenu(
+      menuItem('Input Your Data', tabName = 'inputdata'),
+      menuItem('Display Your Data', tabName = 'displaydata')
+    )
+  ),
+  dashboardBody(
+    tabItems(
+      tabItem(tabName = 'inputdata',
+              fluidPage(
+                fluidRow(column(8,
+                                br(),
+                                selectInput('currency_list1',
+                                            label = 'Currency',
+                                            choices = currency_list$currency)
+                ),
+                column(4,
+                       #tags$h1(textOutput('totalValue')),
+                       Total_USD_UI('totalUSD'),
+                       tags$h6(textOutput('USD_pricing'))
+                )
+                ),
+                tabsetPanel(type = 'tabs',
+                            br(),
+                            tabPanel('Upload',
+                                     fixedRow(
+                                       column(6,
+                                              column(4,
+                                                     fileInput('inputData', 'Upload your Data')),
+                                              column(2,
+                                                     br(),
+                                                     actionButton('newDoc', 'New file')),
+                                              column(4,
+                                                     selectInput('sampleSheet', label = 'Sheets:',
+                                                                 choices = c('Upload your file'),
+                                                                 selected = character(0))),
+                                              column(2,
+                                                     ## this button could be put more to the right
+                                                     br(),
+                                                     downloadButton('downloadData', 'Download'))
+                                       )
+                                     ),
+                                     DT::dataTableOutput('sampleMyFiles')
+                            ),
+                            tabPanel('Expenses',
+                                     display_tabIMG('expense_input')
+                            ),
+                            tabPanel('Income',
+                                     display_tabIMG('income_input')
+                            ),
+                            tabPanel('Credit',
+                                     shinyWidgets::verticalTabsetPanel(
+                                       id = 'creditCards',
+                                       verticalTabPanel(
+                                         title = 'My Cards',
+                                         # tags$h1('Here comes the credit cards record'),
+                                         display_tabIMG('creditCards_input'),
+                                         box_height = "50px"
+                                       ),
+                                       verticalTabPanel(
+                                         title = 'My Expenses',
+                                         # tags$h1('Here comes the credit expenses')
+                                         display_tabIMG('creditExpenses_input')
+                                       )
+                                     )),
+                            tabPanel('Debt',
+                                     # tags$h1('Here comes the debt records')
+                                     display_tabIMG('Debt_input'))
+                            
+                )
+              )
+      ),
+      tabItem(tabName = 'displaydata',
+              ## Credit 01
+              tags$h1('Credit'),
+              fluidRow(
+                column(3,
+                       box(title = 'Settings', status = 'primary', solidHeader = T,
+                           collapsible = T, height = '300px', width = '300px',
+                           dateInput(inputId = 'disDate_pie01',label = 'Month',format = 'mm-yyyy'),
+                           selectInput(inputId = 'disBank_pie01', label = 'Bank',
+                                       choices = c('Select a Bank'), selected = as.character(0)))
                        ),
-                       DT::dataTableOutput('sampleMyFiles')
+                column(3,
+                       box(title = 'Proportion by bank', solidHeader = T, height = '300px', width = '300px',
+                           plotOutput('pie_proportion_by_bank01'))
                        ),
-              tabPanel('Expenses',
-                       display_tabIMG('expense_input')
+                column(3,
+                       box(title = 'Spent by bank', solidHeader = T, height = '300px', width = '300px',
+                           plotOutput('pie_spend_by_bank01'))
                        ),
-              tabPanel('Income',
-                       display_tabIMG('income_input')
-                       ),
-              tabPanel('Credit',
-                       shinyWidgets::verticalTabsetPanel(
-                         id = 'creditCards',
-                         verticalTabPanel(
-                           title = 'My Cards',
-                           # tags$h1('Here comes the credit cards record'),
-                           display_tabIMG('creditCards_input'),
-                           box_height = "50px"
-                         ),
-                         verticalTabPanel(
-                           title = 'My Expenses',
-                           # tags$h1('Here comes the credit expenses')
-                           display_tabIMG('creditExpenses_input')
-                         )
-                       )),
-              tabPanel('Debt',
-                       # tags$h1('Here comes the debt records')
-                       display_tabIMG('Debt_input'))
-    
+                column(3,
+                       box(title = 'Total spent', solidHeader = T, height = '300px', width = '300px',
+                           plotOutput('pie_total_spent01'))
+                       )
+                ),
+              tags$h1('Debit'),
+              fluidRow(
+                column(3,
+                       box(title = 'Settings', status = 'primary', solidHeader = T,
+                           collapsible = T, height = '300px', width = '300px',
+                           dateInput(inputId = 'disDate_pie02',label = 'Month',format = 'mm-yyyy'),
+                           selectInput(inputId = 'disBank_pie02', label = 'Bank',
+                                       choices = c('Select a Bank'), selected = as.character(0)))
+                ),
+                column(3,
+                       box(title = 'Proportion by bank', solidHeader = T, height = '300px', width = '300px',
+                           plotOutput('pie_proportion_by_bank02'))
+                ),
+                column(3,
+                       box(title = 'Spent by bank', solidHeader = T, height = '300px', width = '300px',
+                           plotOutput('pie_spend_by_bank02'))
+                ),
+                column(3,
+                       box(title = 'Total spent', solidHeader = T, height = '300px', width = '300px',
+                           plotOutput('pie_total_spent02'))
+                )
+              ),
+              )
+    )
   )
-  
 )
-
 
 # Define server logic required to draw a histogram
 server <- function(input, output) {
@@ -442,10 +514,6 @@ server <- function(input, output) {
     updateSelectInput(inputId = 'sampleSheet', choices = c(names(theFile$data)))
   })
   
-  # observeEvent(input$inputData, {
-  #   updateSelectInput(inputId = 'sampleSheet', choices = c(names(theFile$data)))
-  # })
-  
   ## upload user's data
   ###--### prepare it for multiple datasets upload
   observeEvent(input$inputData, {
@@ -466,11 +534,6 @@ server <- function(input, output) {
     }
     updateSelectInput(inputId = 'sampleSheet', choices = c(names(theFile$data)))
   })
-
-  
-  # return_sample = eventReactive(input$sampleSheet, {
-  #   return(tail(theFile$data[[input$sampleSheet]]))
-  # })
   
   sampleSheetData <- reactive({
     input$newDoc  # trigger dependency on input$newDoc
@@ -484,7 +547,7 @@ server <- function(input, output) {
     
     tail(theFile$data[[input$sampleSheet]])
   })
-
+  
   ### Este módulo se está ejecutando dos veces, porque?
   output$sampleMyFiles = renderDT({
     # return(return_sample())
@@ -510,8 +573,8 @@ server <- function(input, output) {
                         samplecols = reactive(input$sampleSheet),
                         reactivePort = theFile,
                         section = 'Income')
-
-
+  
+  
   ## Display of #Credit section
   ### #CreditCards.
   # file_piv =
@@ -521,7 +584,7 @@ server <- function(input, output) {
                         samplecols = reactive(input$sampleSheet),
                         reactivePort = theFile,
                         section = 'Creditcards')
-
+  
   ### #CreditExpenses
   # file_piv =
   display_tabIMG_server(id = 'creditExpenses_input',
@@ -530,7 +593,7 @@ server <- function(input, output) {
                         samplecols = reactive(input$sampleSheet),
                         reactivePort = theFile,
                         section = 'Credit_expenses')
-
+  
   ### #Debt
   # file_piv =
   display_tabIMG_server(id = 'Debt_input',
@@ -563,7 +626,7 @@ server <- function(input, output) {
   
   ## To output the amount of total USD
   Total_USD_Server('totalUSD', reactivePort = theFile)
-
+  
   
   ### Price of the dollar
   import_pythonscript = function(){
@@ -577,7 +640,7 @@ server <- function(input, output) {
   
   USDprice_timer = reactiveTimer(3600*(10**3))
   
-  ### The proces bellow not only download the data from the API
+  ### The process bellow not only download the data from the API
   ## It also saves the data to the data lake
   observe({
     USDprice_timer()
@@ -632,36 +695,22 @@ server <- function(input, output) {
     return(the_message)
   })
   
+  
+  ## Credit Section
+  observe({
+    expenses = theFile$data$Credit_expenses
+    cards = theFile$data$Creditcards
+    
+    print('Credit expenses: ==========================================')
+    print(head(expenses))
+    print('')
+    print('Credit cards: =============================================')
+    print(head(cards))
+    
+    banks = unique(cards$Bank)
+  })
+  
 }
 
 # Run the application 
 shinyApp(ui = ui, server = server)
-
-## Quiero colocar dateInput() en la columna de data de DT table. Es posible.
-## Visitar el siguiente link
-# https://stackoverflow.com/questions/55034483/shiny-widgets-in-dt-table
-# https://stackoverflow.com/questions/48160173/r-shiny-extract-values-from-numericinput-datatable-column
-
-
-
-## vamos a crear una aba más donde irán las facturas, que consistirán en tarjetas, facturas
-## fijas que se repitan.
-
-## hacer una aba donde se listarán el total de monetario en el tipo de moneda en el que fue
-## registrado.
-
-
-## Esta aplicaion necesita de internet. Por lo tanto, tengo que buscar una forma de que
-## funcione sin internet. Se me ocurrió una forma: en el script de python, hacer unas
-## lineas con el comando 'try' y si sale error, el script crea un comando que pasará a
-## R y con su existencia, R asumirá el valor más reciente que la API captó
-## O buscar como detectar si hay internet desde R mismo
-
-
-
-## Vamos a adicionar una aba más donde se visualizarán los datos de forma descriptiva
-## intentaré hacer gráficos
-## --> Vamos a adicionar una cadena de pestañas verticales por el lado izquierdo
-## habrán 3 abas. la primera de input en donde se ponen estas informaciones
-## segunda aba serán gráficos y series temporales, con tablas descriptivas.
-## tercera aba aun está por decidirse
